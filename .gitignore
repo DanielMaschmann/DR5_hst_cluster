@@ -134,7 +134,7 @@ dmypy.json
 *.fits
 *.fit
 *.pdf
-*.npy
+#*.npy
 *.npz
 *.pyc
 *.png
