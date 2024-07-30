@@ -10,7 +10,7 @@ from copy import deepcopy
 import matplotlib.pyplot as plt
 
 from astropy.io import fits, ascii
-from astropy.table import Column, hstack, vstack
+from astropy.table import Table, Column, hstack, vstack
 from astropy.wcs import WCS
 from astropy.coordinates import SkyCoord
 import astropy.units as u
@@ -31,6 +31,8 @@ class DataReleaseRoutines:
                  path2sed_cat_2,
                  path2sed_cat_3,
                  path2sed_cat_4,
+                 path2obs_cat_3,
+                 path2obs_cat_4,
                  path2col_name_tab_1,
                  path2col_name_tab_2,
                  path2col_name_tab_3,
@@ -69,6 +71,8 @@ class DataReleaseRoutines:
         self.path2sed_cat_2 = path2sed_cat_2
         self.path2sed_cat_3 = path2sed_cat_3
         self.path2sed_cat_4 = path2sed_cat_4
+        self.path2obs_cat_3 = path2obs_cat_3
+        self.path2obs_cat_4 = path2obs_cat_4
         self.path2col_name_tab_1 = path2col_name_tab_1
         self.path2col_name_tab_2 = path2col_name_tab_2
         self.path2col_name_tab_3 = path2col_name_tab_3
@@ -158,6 +162,9 @@ class DataReleaseRoutines:
                     # load the raw candidate table
                     candidate_table_ir = self.get_ir_cat(target, table_number=table_index, classify=None,
                                                          cl_class='candidates')
+
+                    print('Human classified bigger 0 ', sum(candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'] > 0))
+
                     # find cross-matching artifact
                     for artifact_index in range(len(table_artifact)):
                         artifact_in_table_ir = ((candidate_table_ir['ID_PHANGS_CLUSTERS_v1p2'] ==
@@ -262,21 +269,31 @@ class DataReleaseRoutines:
                     candidate_table = candidate_table[increase_y_sort]
                     # Create the PHANGS cluster ID column
                     # get ids from all objects which have been classified as a cluster
+                    # indexes_with_clusters = np.where(
+                    #     # can be human cluster
+                    #     (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 1) |
+                    #     (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 2) |
+                    #     (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 3) |
+                    #     # or ML cluster
+                    #     (((candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 1) |
+                    #       (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 2) |
+                    #       (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 3)) &
+                    #      # but must be no human classified artefact
+                    #      # otherwise this object is no cluster and will be sorted out.
+                    #      # This last argument is not redundant it sorts those ML cluster out which are humanly
+                    #      # classified artifacts.
+                    #      (((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4) & (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] > 0)) |
+                    #       np.isnan(candidate_table['PHANGS_CLUSTER_CLASS_HUMAN']))))
+
                     indexes_with_clusters = np.where(
                         # can be human cluster
-                        (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 1) |
-                        (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 2) |
-                        (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 3) |
-                        # or ML cluster
-                        (((candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 1) |
+                        (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4) |
+                        # if not human classified it must be ML cluster
+                        ((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 0) &
+                         ((candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 1) |
                           (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 2) |
-                          (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 3)) &
-                         # but must be no human classified artefact
-                         # otherwise this object is no cluster and will be sorted out.
-                         # This last argument is not redundant it sorts those ML cluster out which are humanly
-                         # classified artifacts.
-                         ((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4) |
-                          np.isnan(candidate_table['PHANGS_CLUSTER_CLASS_HUMAN']))))
+                          (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 3))))
+
                     # create empty data for column
                     cluster_id_column_data = np.ones(len(candidate_table), dtype=int) * -999
                     # only give increasing values for clusters
@@ -314,7 +331,8 @@ class DataReleaseRoutines:
                     # We now blank SED results for objects with bad observational coverage
                     #
                     # This evaluation is based on the following estimators:
-                    # a) PHANGS_HALPHA_EVAL_FLAG : a flag that tells us if the cluster could be evaluated with H-alpha imaging
+                    # a) PHANGS_HALPHA_EVAL_FLAG : a flag that tells us if the cluster could be evaluated with
+                    #    H-alpha imaging
                     # b) HaFLAG : a flag that tells us if the cluster passes the H-alpha SED-TreeFit decision point.
                     #            This in particular means that the cluster is assigned to the YNO or the GENERAL branch.
                     #            These objects have the possibility to be more dust embedded and sometimes lack the
@@ -377,8 +395,12 @@ class DataReleaseRoutines:
                     # getting column names for obs and SED tables
                     col_table = ascii.read(getattr(self, 'path2col_name_tab_%i' % table_index), format='csv')
                     final_colum_names = col_table['final_col_name']
-                    obs_column_names = final_colum_names[np.array(col_table['obs_tab'], dtype=bool)]
-                    sed_column_names = final_colum_names[np.array(col_table['sed_tab'], dtype=bool)]
+                    obs_column_names = list(final_colum_names[np.array(col_table['obs_tab'], dtype=bool)])
+                    sed_column_names = list(final_colum_names[np.array(col_table['sed_tab'], dtype=bool)])
+
+                    # add INDEX and cluster ID column to name lists
+                    obs_column_names = ['INDEX', 'ID_PHANGS_CLUSTER'] + obs_column_names
+                    sed_column_names = ['INDEX', 'ID_PHANGS_CLUSTER'] + sed_column_names
 
                     # get the band name of the u-band
                     band_list = helper_func.BandTools.get_hst_obs_band_list(target=target, phangs_hst_version='phangs_hst_1')
@@ -387,7 +409,8 @@ class DataReleaseRoutines:
                     elif 'F438W' in band_list:
                         not_u_band = 'F435W'
                     else:
-                        raise RuntimeError('Something went wrong. For the galaxy ', target, ' There is no U-band available! It must be F435W or F438W ')
+                        raise RuntimeError('Something went wrong. For the galaxy ', target,
+                                           ' There is no U-band available! It must be F435W or F438W ')
 
                     # now construct obs table
                     obs_table = None
@@ -415,13 +438,12 @@ class DataReleaseRoutines:
                     mask_hum_class12 = ((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 1) |
                                         (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 2))
                     mask_hum_class3 = candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 3
+
                     # note that we also exclude human classified artefacts
                     mask_ml_class12 = (((candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 1) |
                                        (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 2)) &
-                                       (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] > 0) &
                                        (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4))
                     mask_ml_class3 = (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 3 &
-                                      (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] > 0) &
                                       (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4))
 
                     obs_hum_cass12_cat = obs_table[mask_hum_class12]
@@ -463,7 +485,149 @@ class DataReleaseRoutines:
                     self.save_catalog(target=target, table=sed_ml_cass3_cat,  classify='ml', cl_class='class3',
                                       table_type='sed', sed_type=getattr(self, 'sed_cat_%i' % table_index))
 
-    def save_catalog(self, target, table, classify, cl_class, table_type, sed_type):
+                elif table_index in [3, 4]:
+
+                    # Note that for tables 3 and4 there is no coverage for NGC 1510 and thus,
+                    # there is no exception handling needed.
+
+                    # Define which reference catalog will be loaded for row matching
+                    # there is a possibility to extend this later to ML and class 3 clusters.
+                    dr_ref = 4
+                    cr_ref = 2
+                    hst_cc_ver_ref = 'IR5'
+                    cat_ver_ref = 'v1'
+                    classify_ref = 'human'
+                    cl_class_ref = 'class12'
+                    table_type_ref = 'obs'
+                    sed_type_ref = None
+                    phot_ver = 'v5p4'
+                    phot_based_ver = 'IR4'
+
+                    # load obs catalog to which we will row match the new catalog
+                    catalog_output_path = (Path(self.catalog_output_path).parents[0] /
+                                           ('phangs_hst_cc_dr%s_cr%s_%s' % (dr_ref, cr_ref, hst_cc_ver_ref)))
+                    cat_name = self.get_data_release_table_name(target=target, cat_ver=cat_ver_ref,
+                                                                classify=classify_ref, cl_class=cl_class_ref,
+                                                                table_type=table_type_ref, sed_type=sed_type_ref)
+                    ref_cat = Table.read(Path(catalog_output_path) / 'catalogs' / cat_name)
+
+                    # get only the identifiers
+                    id_col_name_list = ['INDEX', 'ID_PHANGS_CLUSTER', 'ID_PHANGS_CANDIDATE', 'ID_PHANGS_ALLSOURCES',
+                                        'PHANGS_X', 'PHANGS_Y', 'PHANGS_RA', 'PHANGS_DEC']
+
+                    obs_table = ref_cat[id_col_name_list]
+                    sed_table = ref_cat[id_col_name_list]
+
+                    # get catalog with extended  photometry
+                    obs_cat_ir_file_path = (Path(getattr(self, 'path2obs_cat_%i' % table_index)) /
+                                            (phot_ver + '_' + phot_based_ver))
+
+                    obs_cat_ir_file_name = ('Phot_%s_%s_%s_class12human.fits' %
+                                            (phot_ver, helper_func.FileTools.target_names_no_zeros(target=target),
+                                             phot_based_ver))
+                    obs_cat_ir = Table.read(obs_cat_ir_file_path / obs_cat_ir_file_name)
+
+                    obs_band_list = helper_func.BandTools.get_hst_obs_band_list(target=target,
+                                                                                phangs_hst_version='phangs_hst_1')
+                    # add H-alpha
+                    if 'flux_F658N' in obs_cat_ir.colnames:
+                        obs_band_list.append('F658N')
+                    if 'flux_F657N' in obs_cat_ir.colnames:
+                        obs_band_list.append('F657N')
+                    # add nircam
+                    obs_band_list += ['F200W', 'F300M', 'F335M', 'F360M']
+
+                    # add empty data columns to obs table:
+                    final_col_name_list = []
+                    provided_col_name_list = []
+                    for band in obs_band_list:
+
+                        flux_final_col_name = 'PHANGS_%s_mJy' % band
+                        flux_err_final_col_name = 'PHANGS_%s_mJy_ERR' % band
+                        mag_final_col_name = 'PHANGS_%s_VEGA' % band
+                        mag_err_final_col_name = 'PHANGS_%s_VEGA_ERR' % band
+
+                        flux_provided_col_name = 'flux_%s' % band
+                        flux_err_provided_col_name = 'er_flux_%s' % band
+                        mag_provided_col_name = '%s_veg' % band
+                        mag_err_provided_col_name = 'err_%s' % band
+
+                        final_col_name_list.append(flux_final_col_name)
+                        final_col_name_list.append(flux_err_final_col_name)
+                        final_col_name_list.append(mag_final_col_name)
+                        final_col_name_list.append(mag_err_final_col_name)
+
+                        provided_col_name_list.append(flux_provided_col_name)
+                        provided_col_name_list.append(flux_err_provided_col_name)
+                        provided_col_name_list.append(mag_provided_col_name)
+                        provided_col_name_list.append(mag_err_provided_col_name)
+
+                        obs_table.add_column(Column(data=np.zeros(len(obs_table)),
+                                                    name=flux_final_col_name, dtype=float), index=-1)
+                        obs_table.add_column(Column(data=np.zeros(len(obs_table)),
+                                                    name=flux_err_final_col_name, dtype=float), index=-1)
+                        obs_table.add_column(Column(data=np.zeros(len(obs_table)),
+                                                    name=mag_final_col_name, dtype=float), index=-1)
+                        obs_table.add_column(Column(data=np.zeros(len(obs_table)),
+                                                    name=mag_err_final_col_name, dtype=float), index=-1)
+
+                    # now fill table
+                    for obs_cat_idx in range(len(obs_cat_ir)):
+                        # find cross-match
+                        cross_match_mask = ((obs_table['PHANGS_RA'] == obs_cat_ir['raj2000'][obs_cat_idx]) &
+                                            (obs_table['PHANGS_DEC'] == obs_cat_ir['dej2000'][obs_cat_idx]))
+                        # fill data
+                        if sum(cross_match_mask) == 1:
+                            for final_col_name, provided_col_name in zip(final_col_name_list, provided_col_name_list):
+                                obs_table[final_col_name][cross_match_mask] = obs_cat_ir[provided_col_name][obs_cat_idx]
+
+                    # saving the catalogs
+                    self.save_catalog(target=target, table=obs_table,  classify='human', cl_class='class12',
+                                      table_type='obs', sed_type=None, do_ngc1512_exception=False)
+
+                    # load sed fit catalog:
+                    if table_index == 3:
+                        sed_ver = 'HST_Ha'
+                    elif table_index == 4:
+                        sed_ver = 'HST_Ha_nircam'
+                    else:
+                        raise KeyError('SED version not understood')
+                    file_name = ('%s_%s_all_clusters_results.csv' %
+                                 (helper_func.FileTools.target_names_no_zeros(target=target), sed_ver))
+                    sed_cat_ir = ascii.read(Path(getattr(self, 'path2sed_cat_%i' % table_index)) / file_name, format='csv')
+
+                    col_names_sed_table = ascii.read(getattr(self, 'path2col_name_tab_%i' % table_index), format='csv')
+                    col_names_sed_table = col_names_sed_table[np.array(col_names_sed_table['sed_tab'], dtype=bool)]
+
+                    # add empty columns
+                    for col_name, dtype, astropy_unit_str, description in zip(col_names_sed_table['final_col_name'],
+                                                                              col_names_sed_table['dtype'],
+                                                                              col_names_sed_table['astropy_unit_str'],
+                                                                              col_names_sed_table['doc_description']):
+                        column_content = np.zeros(len(sed_table))
+                        if isinstance(astropy_unit_str, str):
+                            column_content *= u.Unit(astropy_unit_str)
+
+                        sed_table.add_column(Column(data=column_content, name=col_name, dtype=dtype,
+                                                    description=str(description)), index=-1)
+
+                    # now fill table
+                    for sed_cat_idx in range(len(sed_cat_ir)):
+                        # find cross-match
+                        cross_match_mask = ((sed_table['PHANGS_RA'] == sed_cat_ir['ra'][sed_cat_idx]) &
+                                            (sed_table['PHANGS_DEC'] == sed_cat_ir['dec'][sed_cat_idx]))
+                        # fill data
+                        if sum(cross_match_mask) == 1:
+                            for final_col_name, provided_col_name in zip(col_names_sed_table['final_col_name'],
+                                                                         col_names_sed_table['Provided_col_name']):
+                                sed_table[final_col_name][cross_match_mask] = sed_cat_ir[provided_col_name][sed_cat_idx]
+
+                    # save table
+                    self.save_catalog(target=target, table=sed_table,  classify='human', cl_class='class12',
+                                      table_type='sed', sed_type=getattr(self, 'sed_cat_%i' % table_index),
+                                      do_ngc1512_exception=False)
+
+    def save_catalog(self, target, table, classify, cl_class, table_type, sed_type, do_ngc1512_exception=True):
         """
         Function to save the catalog tables
         Parameters
@@ -493,7 +657,7 @@ class DataReleaseRoutines:
         # before we save the table we need to make an exception For the galaxy NGC 1512.
         # This galaxy has a companion NGC 1510 which is present in our observations
         # we simply split the tables into two for this object.
-        if target == 'ngc1512':
+        if (target == 'ngc1512') & do_ngc1512_exception:
             # getting the pixel positions
             x_pixel = table['PHANGS_X']
             y_pixel = table['PHANGS_Y']
@@ -512,10 +676,12 @@ class DataReleaseRoutines:
             table_ngc1510['PHANGS_GALAXY'] = 'ngc1510'
 
             # get table name
-            cat_name_ngc1512 = self.get_data_release_table_name(target=target, classify=classify, cl_class=cl_class,
-                                                                table_type=table_type, sed_type=sed_type)
+            cat_name_ngc1512 = self.get_data_release_table_name(target=target, cat_ver=self.cat_ver, classify=classify,
+                                                                cl_class=cl_class, table_type=table_type,
+                                                                sed_type=sed_type)
             # get table name
-            cat_name_ngc1510 = self.get_data_release_table_name(target='ngc1510', classify=classify, cl_class=cl_class,
+            cat_name_ngc1510 = self.get_data_release_table_name(target='ngc1510', cat_ver=self.cat_ver,
+                                                                classify=classify, cl_class=cl_class,
                                                                 table_type=table_type, sed_type=sed_type)
             # save table
             table_ngc1512.write(Path(self.catalog_output_path + '/catalogs') /
@@ -526,8 +692,8 @@ class DataReleaseRoutines:
                                           overwrite=True)
         else:
             # get table name
-            cat_name = self.get_data_release_table_name(target=target, classify=classify, cl_class=cl_class,
-                                                        table_type=table_type, sed_type=sed_type)
+            cat_name = self.get_data_release_table_name(target=target, cat_ver=self.cat_ver, classify=classify,
+                                                        cl_class=cl_class, table_type=table_type, sed_type=sed_type)
             # save table
             table.write(Path(self.catalog_output_path + '/catalogs') / Path(cat_name),  overwrite=True)
 
@@ -630,13 +796,14 @@ class DataReleaseRoutines:
 
             return table_artifact
 
-    def get_data_release_table_name(self, target, classify, cl_class, table_type='obs', sed_type=None):
+    def get_data_release_table_name(self, target, cat_ver, classify, cl_class, table_type='obs', sed_type=None):
         """
         Function to create final catalog name
         Parameters
         ----------
         target : str
             name of PHANGS-HST target. Must be in self.phangs_hst_target_list
+        cat_ver : str
         classify : str
             classification `human` or `ml`
         cl_class : str
@@ -670,7 +837,7 @@ class DataReleaseRoutines:
         cat_str += instruments + '_'
         cat_str += target.lower() + '_'
         cat_str += 'multi' + '_'
-        cat_str += self.cat_ver + '_'
+        cat_str += cat_ver + '_'
         if table_type == 'obs':
             cat_str += 'obs' + '-'
         if table_type == 'sed':

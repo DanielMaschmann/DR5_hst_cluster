@@ -2,7 +2,6 @@
 Script to create full data release for PHANGS-HST cluster catalogs
 """
 
-import os
 from data_release_routines import DataReleaseRoutines
 
 try:
