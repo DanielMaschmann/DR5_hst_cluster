@@ -6,29 +6,38 @@ specification configurations and data structures for the local machine
 config_dict = {
 
     # name of produced DR
-    'hst_cc_ver': 'IR5',
+    'hst_cc_ver': 'public',
 
     # names of catalogs which will be included
-    'sed_cat_1': 'opt_and_info_ground_based_ha',
-    'sed_cat_2': 'opt_and_info_hst_ha',
+    'sed_cat_1': 'ground-halpha',
+    'sed_cat_2': 'hst-halpha',
     'sed_cat_3': 'opt_and_hst_ha',
     'sed_cat_4': 'opt_and_hst_ha_and_nir',
 
     # path to raw data tables
-    'path2sed_cat_1': '/home/benutzer/data/PHANGS_products/HST_catalogs/'
-                      'SEDfix_NewModelsNBHaUnionHaFLAG91pc_inclusiveGCcc_inclusiveGCclass_Jun21',
-    'path2sed_cat_2': '/home/benutzer/data/PHANGS_products/HST_catalogs/'
-                      'SEDfix_NewModelsHSTHaUnionHaFLAG11pc_inclusiveGCcc_inclusiveGCclass_Jun21',
-    'path2sed_cat_3': '/media/benutzer/Extreme Pro/data/phangs_data_products/kiana_sed_fit/NUV_optical_NIR_final_fits/',
-    'path2sed_cat_4': '/media/benutzer/Extreme Pro/data/phangs_data_products/kiana_sed_fit/NUV_optical_NIR_final_fits/',
+    'path2sed_cat_1': '/Users/dmaschmann/data/PHANGS_products/HST_catalogs/'
+                      'SEDfix_NewModelsNBHaUnionHaFLAG91pc_inclusiveGCcc_inclusiveGCclass_Oct1',
+    'path2sed_cat_2': '/Users/dmaschmann/data/PHANGS_products/HST_catalogs/'
+                      'SEDfix_NewModelsHSTHaUnionHaFLAG11pc_inclusiveGCcc_inclusiveGCclass_Oct1',
+    'path2sed_cat_3': '/Volumes/Extreme Pro/data/phangs_data_products/kiana_sed_fit/NUV_optical_NIR_final_fits/',
+    'path2sed_cat_4': '/Volumes/Extreme Pro/data/phangs_data_products/kiana_sed_fit/NUV_optical_NIR_final_fits/',
+
+    'path2obs_cat_3': '/Volumes/Extreme Pro/data/phangs_data_products/jimane_photometry',
+    'path2obs_cat_4': '/Volumes/Extreme Pro/data/phangs_data_products/jimane_photometry',
+
+
 
     # set path to column tables
-    'path2col_name_tab_1': '/home/benutzer/Documents/projects/DR5_hst_cluster/cluster_cat_dr/column_data/'
+    'path2col_name_tab_1': '/Users/dmaschmann/Documents/projects/DR5_hst_cluster/cluster_cat_dr/column_data/'
                            'DR5_sed_column_name_table - col_names_dr4_cr2.csv',
-    'path2col_name_tab_2': '/home/benutzer/Documents/projects/DR5_hst_cluster/cluster_cat_dr/column_data/'
+    'path2col_name_tab_2': '/Users/dmaschmann/Documents/projects/DR5_hst_cluster/cluster_cat_dr/column_data/'
                            'DR5_sed_column_name_table - col_names_dr4_cr2.csv',
-    'path2col_name_tab_3': '',
-    'path2col_name_tab_4': '',
+    'path2col_name_tab_3': '/Users/dmaschmann/Documents/projects/DR5_hst_cluster/cluster_cat_dr/column_data/'
+                           'DR5_sed_column_name_table - col_names_dr5_cr1.csv',
+    'path2col_name_tab_4': '/Users/dmaschmann/Documents/projects/DR5_hst_cluster/cluster_cat_dr/column_data/'
+                           'DR5_sed_column_name_table - col_names_dr5_cr1.csv',
+
+
 
     # which galaxies will be included in the
     'target_list_table_1': ['ic1954', 'ic5332', 'ngc0628e', 'ngc0628c', 'ngc0685', 'ngc1087', 'ngc1097', 'ngc1300',
@@ -41,10 +50,10 @@ config_dict = {
                             'ngc5068', 'ngc7496'],
     'target_list_table_3': ['ic5332', 'ngc0628e', 'ngc0628c', 'ngc1087', 'ngc1300', 'ngc1365', 'ngc1385', 'ngc1433',
                             'ngc1512', 'ngc1566', 'ngc1672', 'ngc3351', 'ngc3627', 'ngc4254', 'ngc4303', 'ngc4321',
-                            'ngc5068', 'ngc7496'],
+                            'ngc7496'],
     'target_list_table_4': ['ic5332', 'ngc0628e', 'ngc0628c', 'ngc1087', 'ngc1300', 'ngc1365', 'ngc1385', 'ngc1433',
                             'ngc1512', 'ngc1566', 'ngc1672', 'ngc3351', 'ngc3627', 'ngc4254', 'ngc4303', 'ngc4321',
-                            'ngc5068', 'ngc7496'],
+                            'ngc7496'],
 
     'create_candidate_table_1': True,
     'create_candidate_table_2': True,
@@ -53,25 +62,36 @@ config_dict = {
 
     # parameters to create data out put
     # note that for DR 4 CR2 we will create Tables 1 and 2 and for DR5 CR1 tables 3 and 4.
+    # 'list_include_tables': [1, 2],
+    # # Data output
+    # # data release
+    # 'data_release': '4',
+    # # catalog release
+    # 'catalog_release': '2',
+    #
+
+
     'list_include_tables': [1, 2],
     # Data output
     # data release
     'data_release': '4',
     # catalog release
-    'catalog_release': '2',
+    'catalog_release': '3',
+
+
     # catalog version
     'cat_ver': 'v1',
     # path to Data Release 4, Catalog Release 3 at MAST
-    'catalog_output_path': '/home/benutzer/data/PHANGS_products/HST_catalogs',
+    'catalog_output_path': '/Users/dmaschmann/data/PHANGS_products/HST_catalogs',
 
     # Identified artifact in the internal release
     # path to tables/catalogs of artifacts
-    'path2artifact': '/home/benutzer/data/PHANGS_products/HST_catalogs/Artifact_Removal/AR1',
+    'path2artifact': '/Users/dmaschmann/data/PHANGS_products/HST_catalogs/Artifact_Removal/AR1',
     # a re-evaluation of questionable artefacts.
-    'path2questionable_artifacts': '/home/benutzer/data/PHANGS_products/HST_catalogs/Artifact_Removal/'
+    'path2questionable_artifacts': '/Users/dmaschmann/data/PHANGS_products/HST_catalogs/Artifact_Removal/'
                                    'Questionable Artifacts - questionable_artifacts.csv',
     # masks for diffraction spikes
-    'path2diffraction_spike_masks': '/home/benutzer/data/PHANGS_products/HST_catalogs/Artifact_Removal/'
+    'path2diffraction_spike_masks': '/Users/dmaschmann/data/PHANGS_products/HST_catalogs/Artifact_Removal/'
                                     'diffraction_spikes/fits',
     # limit for V-I color and concentration index
     'v_i_color_lim': 2.0,

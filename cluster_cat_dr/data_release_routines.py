@@ -58,6 +58,7 @@ class DataReleaseRoutines:
                  artifact_removal_flag,
                  artifact_rais_file_not_found_flag,
                  existing_artifact_removal_flag,
+                 path2globular_cluster_flag
                  ):
 
         # add input keys to attributes
@@ -104,6 +105,7 @@ class DataReleaseRoutines:
         self.artifact_removal_flag = artifact_removal_flag
         self.artifact_rais_file_not_found_flag = artifact_rais_file_not_found_flag
         self.existing_artifact_removal_flag = existing_artifact_removal_flag
+        self.path2globular_cluster_flag = path2globular_cluster_flag
 
         self.questionable_artefact_table = None
 
@@ -163,10 +165,22 @@ class DataReleaseRoutines:
                     candidate_table_ir = self.get_ir_cat(target, table_number=table_index, classify=None,
                                                          cl_class='candidates')
 
-                    print('Human classified bigger 0 ', sum(candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'] > 0))
-
                     # find cross-matching artifact
+                    # It is obvious that some decision parts here look fairly confusing. But the reason is rather simple
+                    # From previous data releases we sorted out artefacts beginning from Class 1+2 and class 3 tables
+                    # Hence a re classification would lead to a non-matching of the tables and furthermore
+                    # Update human classification:
+                    # For the classification there have been two steps:
+                    # step 1) Chris and Lucious classified artifacts.
+                    #         If They were unable to classify the artifact they put in -999
+                    # step 2) All the artifacts not classified by Chris and Lucious (-999) were then re-classified
+                    #         by BCW.
+                    # However, we always prefer the BCW classification if possible
+
+                    mask_include_in_cluster_numeration = np.zeros(len(candidate_table_ir), dtype=bool)
+
                     for artifact_index in range(len(table_artifact)):
+                        # index in the artefact table Chris and Lucious
                         artifact_in_table_ir = ((candidate_table_ir['ID_PHANGS_CLUSTERS_v1p2'] ==
                                                  table_artifact['ID_PHANGS_CLUSTERS_v1p2'][artifact_index]) &
                                                 (candidate_table_ir['PHANGS_X'] ==
@@ -177,35 +191,103 @@ class DataReleaseRoutines:
                                                  table_artifact['PHANGS_RA'][artifact_index]) &
                                                 (candidate_table_ir['PHANGS_DEC'] ==
                                                  table_artifact['PHANGS_DEC'][artifact_index]))
+                        # index in the re classification table by BCW
                         artifact_in_table_re_classified = \
                             ((table_re_classified['ID_PHANGS_CLUSTERS_v1p2'] ==
                               table_artifact['ID_PHANGS_CLUSTERS_v1p2'][artifact_index]))
-                        # Update human classification:
-                        #
-                        # If this row was already classified by human (BCW) we do nothing
-                        if np.invert(np.isnan(candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN']
-                                              [artifact_in_table_ir][0])):
+
+                        # print('artifact_index ', artifact_index,
+                        #       candidate_table_ir['ID_PHANGS_CLUSTERS_v1p2'][artifact_in_table_ir])
+                        # print('artefacts in L&C catalog ', sum(artifact_in_table_ir),
+                        #       ' artefacts reclassified by BCW ', sum(artifact_in_table_re_classified),
+                        #       ' first BCW classification ',
+                        #       table_artifact['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_index])
+
+                        # if this specific cluster was already classified in a first inspection by BCW,
+                        # we will not change anything
+                        # if table_artifact['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_index] in [1, 2, 3]:
+                        #     continue
+                        mask_include_in_cluster_numeration[artifact_in_table_ir] = True
+
+                        if np.invert(
+                                np.isnan(candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir][0])):
+                            # print('already classified')
                             continue
-                        # For the classification there have been two steps:
-                        # step 1) Chris and Lucious classified artifacts.
-                        #         If They were unable to classify the artifact they put in -999
-                        # step 2) All the artifacts not classified by Chris and Lucious (-999) were then re-classified
-                        #         by BCW.
-                        #
-                        # Change the human classification according to Chris and Lucious
-                        if table_artifact['NEW_CLASS'][artifact_index] != -999:
-                            candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir] = (
-                                table_artifact)['NEW_CLASS'][artifact_index]
-                        # Change the re-classified according to BCW
+                        # was it re classified by BCW?
+                        if sum(artifact_in_table_re_classified) > 0:
+                            bcw_classify = table_re_classified['BCW_estimate'][artifact_in_table_re_classified][0]
+                            # in case the classification was masked we just add the class 20 to sort them later out
+                            if np.ma.isMaskedArray(
+                                    table_re_classified['BCW_estimate'][artifact_in_table_re_classified][0]):
+                                #if bcw_classify in [1,2,3]:
+                                mask_include_in_cluster_numeration[artifact_in_table_ir] = True
+
+                                candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir] = 20
+                            # in case a re classification by BCW as a cluster we do not add them to the cluster list.
+                            # If we do so, we would add clusters which have not been included in the original
+                            # class 1+2 and class 3 tables because this would lead to not matching tables
+                            # with DR 4 CR 2 and 3
+                            elif bcw_classify in [1, 2, 3, -999]:
+                                # print(' BCW: No artefact ',
+                                #       candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir],
+                                #       bcw_classify, table_artifact['NEW_CLASS'][artifact_index])
+                                continue
+                            else:
+                                # print(' BCW: artefact',
+                                #       candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir],
+                                #       bcw_classify, table_artifact['NEW_CLASS'][artifact_index])
+                                # if BCW classified this as a artefact, we will use this classification!
+                                if table_re_classified['BCW_estimate'][artifact_in_table_re_classified] >= 4:
+                                    candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir] = (
+                                        table_re_classified)['BCW_estimate'][artifact_in_table_re_classified]
                         else:
-                            # If there is no data in the column, the entry will be masked. In this case we move on.
-                            if not np.ma.isMaskedArray(table_re_classified['BCW_estimate']
-                                                       [artifact_in_table_re_classified][0]):
-                                # In some cases a -999 is also indicating no classification.
-                                if int(table_re_classified['BCW_estimate'][artifact_in_table_re_classified][0]) != -999:
-                                    # Updating the human classification.
-                                    candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir] = \
-                                        int(table_re_classified['BCW_estimate'][artifact_in_table_re_classified][0])
+                            # if BCW did not reclassify the object and it is in the artefact list, we have to flag it
+                            # as an artefact no matter what to be consistent with DR4, CR2 and 3
+                            # print(' L&C : artefact',
+                            #       candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir],
+                            #       table_artifact['NEW_CLASS'][artifact_index])
+                            if (table_artifact)['NEW_CLASS'][artifact_index] >= 4:
+                                candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir] = (
+                                    table_artifact)['NEW_CLASS'][artifact_index]
+
+                            else:
+                                # if it is somehow classified as a cluster in the artefact table, which should not be
+                                # the case anyway!!! We still will flag it as an artefact for consistency with
+                                # DR 4 CR 2 and 3
+                                candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir] = 20
+
+
+
+
+
+                        # if np.invert(np.isnan(candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir][0])):
+                        #     # print('already classified')
+                        #     continue
+                        #
+                        # # was it re classified by BCW?
+                        # if table_artifact['NEW_CLASS'][artifact_index] != -999:
+                        #     if table_artifact['NEW_CLASS'][artifact_index] in [1,2,3]:
+                        #         mask_include_in_cluster_numeration[artifact_in_table_ir] = True
+                        #     else:
+                        #         candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir] = (
+                        #         table_artifact)['NEW_CLASS'][artifact_index]
+                        # else:
+                        #     if not np.ma.isMaskedArray(table_re_classified['BCW_estimate'][artifact_in_table_re_classified][0]):
+                        #         bcw_classify = int(table_re_classified['BCW_estimate'][artifact_in_table_re_classified][0])
+                        #         if bcw_classify in [1,2,3]:
+                        #             mask_include_in_cluster_numeration[artifact_in_table_ir] = True
+                        #         elif bcw_classify != -999:
+                        #
+                        #             candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_table_ir] = bcw_classify
+                        #     else:
+                        #         mask_include_in_cluster_numeration[artifact_in_table_ir] = True
+                        #
+
+
+
+
+
+
                     # Some clusters are situated in diffraction spikes of bright foreground stars.
                     # These objects have bad photometry and are therefore flagged as an artifact (artifact code 8)
                     if diffraction_spike_mask is not None:
@@ -226,11 +308,13 @@ class DataReleaseRoutines:
                                                     (y_pixel_coords < diffraction_spike_mask.shape[1]))
                         # Masking the diffraction spike.
                         # The map is a boolean map so 0 indicated no diffraction spike and 1 means diffraction spike
-                        artifact_in_diffraction_spike = (
+                        artifact_in_diffraction_spike = np.zeros(len(candidate_table_ir['PHANGS_X']), dtype=bool)
+
+                        artifact_in_diffraction_spike[mask_covered_coordinates] = (
                                 diffraction_spike_mask[y_pixel_coords[mask_covered_coordinates],
                                                        x_pixel_coords[mask_covered_coordinates]] > 0)
                         # Updating the human classification with the diffraction spike artifact code
-                        candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][mask_covered_coordinates][artifact_in_diffraction_spike] = 8
+                        candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_diffraction_spike] = 8
                     # In some cases there are two diffraction spike maps.
                     # This is due to the fact that two different bands were evaluated.
                     # we now repeat the exact same steps again for the second map if available.
@@ -244,10 +328,12 @@ class DataReleaseRoutines:
                         mask_covered_coordinates = ((x_pixel_coords > 0) & (y_pixel_coords > 0) &
                                                     (x_pixel_coords < diffraction_spike_mask_2.shape[0]) &
                                                     (y_pixel_coords < diffraction_spike_mask_2.shape[1]))
-                        artifact_in_diffraction_spike = (
+                        artifact_in_diffraction_spike = np.zeros(len(candidate_table_ir['PHANGS_X']), dtype=bool)
+                        artifact_in_diffraction_spike[mask_covered_coordinates] = (
                                 diffraction_spike_mask_2[y_pixel_coords[mask_covered_coordinates],
-                                                         x_pixel_coords[mask_covered_coordinates]] > 0)
-                        candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][mask_covered_coordinates][artifact_in_diffraction_spike] = 8
+                                                       x_pixel_coords[mask_covered_coordinates]] > 0)
+                        # Updating the human classification with the diffraction spike artifact code
+                        candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][artifact_in_diffraction_spike] = 8
 
                     # update very red stars
                     # These stars are identified by the concentration index and the V-I color.
@@ -255,20 +341,56 @@ class DataReleaseRoutines:
                     vi_color = candidate_table_ir['PHANGS_F555W_vega_tot'] - candidate_table_ir['PHANGS_F814W_vega_tot']
                     ci = candidate_table_ir['PHANGS_CI']
                     # the thresholds for the selection are specified in the DR configuration file
-                    very_red_star_mask_candidate_table_ir = (vi_color > self.v_i_color_lim) & (ci < self.ci_lim)
+                    # here is a problem with the catalog versions: The cadidate catalog has different versions of term
+                    very_red_star_mask_candidate_table_ir = (((vi_color > self.v_i_color_lim) & (ci < self.ci_lim)) |
+                                                             (np.isinf(candidate_table_ir['PHANGS_F814W_vega_tot']) & (ci < self.ci_lim)) |
+                                                             ((candidate_table_ir['PHANGS_F814W_mJy_tot'] == -9999.0) & (ci < self.ci_lim)))
+                    # print('number of red stars (V-I > %.1f & CI < %.1f)' % (self.v_i_color_lim, self.ci_lim),
+                    #       sum(very_red_star_mask_candidate_table_ir), np.min(vi_color), sum(np.isinf(candidate_table_ir['PHANGS_F814W_vega_tot'])), sum(np.isinf(candidate_table_ir['PHANGS_F555W_vega_tot'])))
+
+
+
+                    # print('red stars: ', sum(very_red_star_mask_candidate_table_ir))
+                    # print('hum ', candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][very_red_star_mask_candidate_table_ir])
+                    # print('ml ', candidate_table_ir['PHANGS_CLUSTER_CLASS_ML_VGG'][very_red_star_mask_candidate_table_ir])
                     candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][very_red_star_mask_candidate_table_ir] = 19
+                    # print('hum ', candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'][very_red_star_mask_candidate_table_ir])
+                    # print('ml ', candidate_table_ir['PHANGS_CLUSTER_CLASS_ML_VGG'][very_red_star_mask_candidate_table_ir])
+
+
                     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                     # !!!!! Save candidate table !!!!!
                     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                     # For this step we will first create the candidate table by looping over all columns
                     # In this loop we load the cvs files providing the final column names, data types, units and
                     # descriptions
+
+                    # print('class 12 ', sum((candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'] == 1) |
+                    #                        (candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'] == 2)),
+                    #       ' class 3 ', sum(candidate_table_ir['PHANGS_CLUSTER_CLASS_HUMAN'] == 3))
+
+
                     candidate_table = self.create_cand_table(target=target, table=candidate_table_ir)
+                    # print('class 12 ', sum((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 1) |
+                    #                         (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 2)),
+                    #       ' class 3 ', sum(candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 3))
+
+
                     # sort them by increasing Y pixel
                     increase_y_sort = np.argsort(candidate_table['PHANGS_Y'])
                     candidate_table = candidate_table[increase_y_sort]
-                    # Create the PHANGS cluster ID column
-                    # get ids from all objects which have been classified as a cluster
+
+                    #load candidate table from DR 4
+                    cand_table_dr4_cr2_name = self.get_data_release_table_name(target=target, cat_ver='v2', classify=None, cl_class=None, table_type='cand', sed_type=None)
+                    cand_table_dr4_cr2_table = Table.read('/Users/dmaschmann/data/PHANGS_products/HST_catalogs/phangs_hst_cc_dr4_cr2/catalogs/' + cand_table_dr4_cr2_name)
+                    cluster_id_column_data = np.ones(len(candidate_table), dtype=int) * -999
+                    for obj_index in range(len(candidate_table)):
+                        obj_mask = ((cand_table_dr4_cr2_table['PHANGS_X'] == candidate_table['PHANGS_X'][obj_index]) &
+                                    (cand_table_dr4_cr2_table['PHANGS_Y'] == candidate_table['PHANGS_Y'][obj_index]))
+                        cluster_id_column_data[obj_index] = cand_table_dr4_cr2_table['ID_PHANGS_CLUSTER'][obj_mask]
+
+                    # # Create the PHANGS cluster ID column
+                    # # get ids from all objects which have been classified as a cluster
                     # indexes_with_clusters = np.where(
                     #     # can be human cluster
                     #     (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 1) |
@@ -278,26 +400,16 @@ class DataReleaseRoutines:
                     #     (((candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 1) |
                     #       (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 2) |
                     #       (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 3)) &
-                    #      # but must be no human classified artefact
-                    #      # otherwise this object is no cluster and will be sorted out.
-                    #      # This last argument is not redundant it sorts those ML cluster out which are humanly
-                    #      # classified artifacts.
-                    #      (((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4) & (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] > 0)) |
-                    #       np.isnan(candidate_table['PHANGS_CLUSTER_CLASS_HUMAN']))))
-
-                    indexes_with_clusters = np.where(
-                        # can be human cluster
-                        (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4) |
-                        # if not human classified it must be ML cluster
-                        ((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 0) &
-                         ((candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 1) |
-                          (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 2) |
-                          (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 3))))
-
-                    # create empty data for column
-                    cluster_id_column_data = np.ones(len(candidate_table), dtype=int) * -999
-                    # only give increasing values for clusters
-                    cluster_id_column_data[indexes_with_clusters] = np.arange(1, len(indexes_with_clusters[0])+1)
+                    #      # but must be no human classified artefact otherwise this object is no cluster and will be
+                    #      # sorted out
+                    #      # this is correct but not the best way to put this ...
+                    #      ((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4) |
+                    #       np.isnan(candidate_table['PHANGS_CLUSTER_CLASS_HUMAN']))) |
+                    #     mask_include_in_cluster_numeration)
+                    # # create empty data for column
+                    # cluster_id_column_data = np.ones(len(candidate_table), dtype=int) * -999
+                    # # only give increasing values for clusters
+                    # cluster_id_column_data[indexes_with_clusters] = np.arange(1, len(indexes_with_clusters[0])+1)
                     # create cluster id column
                     cluster_id_column = Column(data=cluster_id_column_data, name='ID_PHANGS_CLUSTER',
                                                dtype=int,
@@ -308,6 +420,7 @@ class DataReleaseRoutines:
                                           name='INDEX',
                                           dtype=int,
                                           description='Running index from 1 to N for each individual target')
+
                     # add these columns to the candidate table
                     candidate_table = hstack([index_column, cluster_id_column, candidate_table])
 
@@ -356,8 +469,7 @@ class DataReleaseRoutines:
                     #    high dust extinction hence objects with 0, 1, 2, or 3 HST bands are not reliable fittable.
 
                     # computing number of good HST bands:
-                    hst_band_list = helper_func.BandTools.get_hst_obs_band_list(target=target,
-                                                                                phangs_hst_version='phangs_hst_1')
+                    hst_band_list = helper_func.ObsTools.get_hst_obs_broad_band_list(target=target)
                     # create int array with initial 5 good bands
                     n_good_hst_bands = np.ones(len(candidate_table), dtype=int) * 5
                     # loop over HST bands
@@ -366,12 +478,14 @@ class DataReleaseRoutines:
                                         (candidate_table['PHANGS_%s_mJy_ERR' % hst_band] > 1.e19))
                         # subtract each bad HST band
                         n_good_hst_bands -= np.array(bad_hst_band, dtype=int)
+
                     # create mask to drop SED fit results
                     mask_drop_sed_values = (np.invert(candidate_table['PHANGS_HALPHA_EVAL_FLAG']) |
-                                            (candidate_table['PHANGS_HALPHA_EVAL_FLAG'] & candidate_table['HaFLAG'] &
+                                            (candidate_table['PHANGS_HALPHA_EVAL_FLAG'] &
+                                             candidate_table['PHANGS_HALPHA_PASS_FLAG'] &
                                              (n_good_hst_bands < 3)) |
                                             (candidate_table['PHANGS_HALPHA_EVAL_FLAG'] &
-                                             np.invert(candidate_table['HaFLAG']) &
+                                             np.invert(candidate_table['PHANGS_HALPHA_PASS_FLAG']) &
                                              (n_good_hst_bands < 4)))
                     # now we blank the SED fit results for these objects
                     for col_name in candidate_table.colnames:
@@ -381,12 +495,36 @@ class DataReleaseRoutines:
                     # now finally add two columns for CCD classification
                     self.add_ccd_region_col(target, candidate_table)
 
+                    ###### ADD Globular cluster flag from Floid +24
+                    floyd_table = Table.read(self.path2globular_cluster_flag)
+                    mask_gc = floyd_table['gc_flag'] == 0
+                    coords_floyd = SkyCoord(ra=floyd_table['PHANGS_RA'][mask_gc]*u.deg, dec=floyd_table['PHANGS_DEC'][mask_gc]*u.deg)
+                    coords_cand_table = SkyCoord(ra=candidate_table['PHANGS_RA'], dec=candidate_table['PHANGS_DEC'])
+                    # cross_match
+                    cross_match_idx_floyd_cand_table, cross_match_d2d_floyd_cand_table, _ = (
+                        coords_cand_table.match_to_catalog_sky(coords_floyd, nthneighbor=1))
+                    mask_with_floyd_cand_table = (cross_match_d2d_floyd_cand_table < 0.01 * u.arcsec)
+
+                    data_column_globular_cluster_floyd24 = np.zeros(len(candidate_table), dtype=bool)
+
+                    data_column_globular_cluster_floyd24[mask_with_floyd_cand_table] = True
+
+                    # create cluster
+                    column_globular_cluster_floyd24 = Column(data=data_column_globular_cluster_floyd24, name='PHANGS_GLOBULAR_FLOYD24',
+                                               dtype=bool,
+                                               description='Flag for objects which have been selected as globular '
+                                                           'clusters in Floyd+24 (2024AJ....167...95F)')
+                    candidate_table.add_column(column_globular_cluster_floyd24)
+
                     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                     # !!!!!!!!! save Candidate table !!!!!!!!!
                     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                     #
                     self.save_catalog(target=target, table=candidate_table, classify=None, cl_class=None,
                                       table_type='cand', sed_type=getattr(self, 'sed_cat_%i' % table_index))
+
+                    # print(sum(np.isnan(candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'])))
+                    # print()
 
                     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                     # !!!!!!! OBS and SED catalogs !!!!!!!
@@ -403,7 +541,7 @@ class DataReleaseRoutines:
                     sed_column_names = ['INDEX', 'ID_PHANGS_CLUSTER'] + sed_column_names
 
                     # get the band name of the u-band
-                    band_list = helper_func.BandTools.get_hst_obs_band_list(target=target, phangs_hst_version='phangs_hst_1')
+                    band_list = helper_func.ObsTools.get_hst_obs_band_list(target=target)
                     if 'F435W' in band_list:
                         not_u_band = 'F438W'
                     elif 'F438W' in band_list:
@@ -432,19 +570,39 @@ class DataReleaseRoutines:
                         else:
                             sed_table = hstack([sed_table, candidate_table[sed_col_name]])
 
+
+
+
                     # now save final catalogs
+                    # mask_cluster_no_star = np.invert((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] != 1) &
+                    #                                  (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] != 2) &
+                    #                                  (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] != 3) &
+                    #                                  (candidate_table['PHANGS_CANDIDATE_MODELREGION_CLUSTER_NOSTAR'] != 1))
+                    # mask_cluster_no_star = np.invert((candidate_table['PHANGS_CANDIDATE_MODELREGION_CLUSTER_NOSTAR'] != 1))
+                    mask_cluster_no_star = candidate_table['PHANGS_CANDIDATE_MODELREGION_CLUSTER_NOSTAR'] == 1
+
                     # select human and machine learning catalogs and class 1+2 and class 3
                     # human classified catalogs
                     mask_hum_class12 = ((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 1) |
                                         (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 2))
-                    mask_hum_class3 = candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 3
+                    mask_hum_class3 = (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] == 3)
 
                     # note that we also exclude human classified artefacts
                     mask_ml_class12 = (((candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 1) |
                                        (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 2)) &
-                                       (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4))
-                    mask_ml_class3 = (candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 3 &
-                                      (candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4))
+                                       ((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4) | np.isnan(candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'])) &
+                                       mask_cluster_no_star)
+                    mask_ml_class3 = ((candidate_table['PHANGS_CLUSTER_CLASS_ML_VGG'] == 3) &
+                                      ((candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'] < 4) |
+                                          np.isnan(candidate_table['PHANGS_CLUSTER_CLASS_HUMAN'])) &
+                                      mask_cluster_no_star)
+
+
+
+                    # print('mask_hum_class12 ', sum(mask_hum_class12))
+                    # print('mask_hum_class3 ', sum(mask_hum_class3))
+                    # print('mask_ml_class12 ', sum(mask_ml_class12))
+                    # print('mask_ml_class3 ', sum(mask_ml_class3))
 
                     obs_hum_cass12_cat = obs_table[mask_hum_class12]
                     obs_hum_cass3_cat = obs_table[mask_hum_class3]
@@ -527,8 +685,7 @@ class DataReleaseRoutines:
                                              phot_based_ver))
                     obs_cat_ir = Table.read(obs_cat_ir_file_path / obs_cat_ir_file_name)
 
-                    obs_band_list = helper_func.BandTools.get_hst_obs_band_list(target=target,
-                                                                                phangs_hst_version='phangs_hst_1')
+                    obs_band_list = helper_func.ObsTools.get_hst_obs_broad_band_list(target=target)
                     # add H-alpha
                     if 'flux_F658N' in obs_cat_ir.colnames:
                         obs_band_list.append('F658N')
@@ -721,20 +878,20 @@ class DataReleaseRoutines:
         if table_number == 1:
             if cl_class == 'candidates':
                 file_name = ('SEDfix_%s_NewModelsNBHaUnionHaFLAG91pc_inclusiveGCcc_'
-                             'inclusiveGCclass_Jun21_phangshst_candidates_bcw_v1p2_IR4.fits' %
+                             'inclusiveGCclass_Oct1_phangshst_candidates_bcw_v1p2_IR4.fits' %
                              helper_func.FileTools.target_names_no_zeros(target))
             else:
                 file_name = (('SEDfix_PHANGS_IR4_%s_NewModelsNBHaUnionHaFLAG91pc_inclusiveGCcc_'
-                             'inclusiveGCclass_Jun21_phangs_hst_v1p2_%s_%s.fits') %
+                             'inclusiveGCclass_Oct1_phangs_hst_v1p2_%s_%s.fits') %
                              (helper_func.FileTools.target_names_no_zeros(target), classify, cl_class))
         elif table_number == 2:
             if cl_class == 'candidates':
                 file_name = ('SEDfix_%s_NewModelsHSTHaUnionHaFLAG11pc_inclusiveGCcc_'
-                             'inclusiveGCclass_Jun21_phangshst_candidates_bcw_v1p2_IR4.fits' %
+                             'inclusiveGCclass_Oct1_phangshst_candidates_bcw_v1p2_IR4.fits' %
                              helper_func.FileTools.target_names_no_zeros(target))
             else:
                 file_name = (('SEDfix_PHANGS_IR4_%s_NewModelsHSTHaUnionHaFLAG11pc_'
-                              'inclusiveGCcc_inclusiveGCclass_Jun21_phangs_hst_v1p2_%s_%s.fits') %
+                              'inclusiveGCcc_inclusiveGCclass_Oct1_phangs_hst_v1p2_%s_%s.fits') %
                              (helper_func.FileTools.target_names_no_zeros(target), classify, cl_class))
         elif table_number == 3:
             file_name = '%s_HST_Ha_all_clusters_results.fits' % helper_func.FileTools.target_names_no_zeros(target)
@@ -821,10 +978,10 @@ class DataReleaseRoutines:
 
         # get instruments
 
-        band_list = helper_func.BandTools.get_hst_obs_band_list(target=target, phangs_hst_version='phangs_hst_1')
+        band_list = helper_func.ObsTools.get_hst_obs_band_list(target=target)
         instrument_list = []
         for band in band_list:
-            instrument_list.append(helper_func.BandTools.get_hst_instrument(target=target, band=band))
+            instrument_list.append(helper_func.ObsTools.get_hst_instrument(target=target, band=band))
 
         instruments = ''
         if 'acs' in instrument_list:
@@ -844,6 +1001,8 @@ class DataReleaseRoutines:
             cat_str += 'sed' + '-'
         if table_type == 'cand':
             cat_str += 'obs-sed' + '-'
+        if sed_type is not None:
+            cat_str += sed_type + '-'
         if classify == 'human':
             cat_str += 'human' + '-'
         if classify == 'ml':
@@ -855,8 +1014,6 @@ class DataReleaseRoutines:
         if cl_class is None:
             cat_str += 'candidates'
         # add catalog_description
-        if sed_type is not None:
-            cat_str += '_' + sed_type
         cat_str += '.fits'
 
         return cat_str
@@ -1054,7 +1211,7 @@ class DataReleaseRoutines:
         col_table = col_table[np.array(col_table['cand_tab'], dtype=bool)]
 
         # get the band name of the u-band
-        band_list = helper_func.BandTools.get_hst_obs_band_list(target=target, phangs_hst_version='phangs_hst_1')
+        band_list = helper_func.ObsTools.get_hst_obs_band_list(target=target)
         if 'F435W' in band_list:
             not_u_band = 'F438W'
         elif 'F438W' in band_list:
@@ -1070,10 +1227,27 @@ class DataReleaseRoutines:
             if not_u_band in raw_col_name:
                 continue
 
+            # the CC_class columns and globular cluster flag of Floyd+24 will be assigned later thus we skip them here!
+            if final_col_name in ['CC_CLASS_HUMAN', 'CC_CLASS_ML', 'PHANGS_GLOBULAR_FLOYD24']:
+                continue
+
             column_content = table[raw_col_name]
+            # change some columns which come out of the pipeline in log scale
+            # age
+            if ('mm_' in final_col_name) & ('age' in final_col_name):
+                # converting from log age to Myr linear scale
+                column_content = (10 ** column_content) / 1e6
+            # mass
+            if ('mm_' in final_col_name) & ('mass' in final_col_name):
+                # converting from log mass to linear scale (M_sun)
+                column_content = (10 ** column_content)
+
             # add astropy unit if possible
             if isinstance(astropy_unit_str, str):
                 column_content *= u.Unit(astropy_unit_str)
+
+            # if the column is in log(age\yr) we have to convert it to Myr
+
 
             column = Column(data=column_content, name=final_col_name, dtype=dtype.astype('str'),
                             description=str(doc_description))
@@ -1143,8 +1317,8 @@ class DataReleaseRoutines:
         diffraction_mask = None
         diffraction_wcs = None
         # we just sum up all maps (0 nothing and 1 indicates diffraction spike)
-        for band in helper_func.BandTools.get_hst_obs_band_list(target=target, phangs_hst_version='phangs_hst_1'):
-            instrument = helper_func.BandTools.get_hst_instrument(target=target, band=band)
+        for band in helper_func.ObsTools.get_hst_obs_band_list(target=target):
+            instrument = helper_func.ObsTools.get_hst_instrument(target=target, band=band)
 
             diff_spike_mask_file_name = (self.path2diffraction_spike_masks + '/' '%s_%s_%s_mask.fits' %
                                          (target_str, band.lower(), instrument))
@@ -1195,7 +1369,7 @@ class DataReleaseRoutines:
         vi_color = candidate_table['PHANGS_F555W_VEGA'] - candidate_table['PHANGS_F814W_VEGA']
         color_u = candidate_table['PHANGS_F336W_VEGA']
 
-        hst_band_list = helper_func.BandTools.get_hst_obs_band_list(target=target, phangs_hst_version='phangs_hst_1')
+        hst_band_list = helper_func.ObsTools.get_hst_obs_band_list(target=target)
         if 'F438W' in hst_band_list:
             color_b = candidate_table['PHANGS_F438W_VEGA']
         else:
@@ -1210,19 +1384,13 @@ class DataReleaseRoutines:
         vi_hull_map_ml, ub_hull_map_ml = self.load_hull(region_type='map', classify='ml', y_color='ub')
         vi_hull_ogcc_ml, ub_hull_ogcc_ml = self.load_hull(region_type='ogcc', classify='ml', y_color='ub')
 
-        hull_ycl_hum = ConvexHull(np.array([vi_hull_ycl_hum, ub_hull_ycl_hum]).T)
-        hull_map_hum = ConvexHull(np.array([vi_hull_map_hum, ub_hull_map_hum]).T)
-        hull_ogcc_hum = ConvexHull(np.array([vi_hull_ogcc_hum, ub_hull_ogcc_hum]).T)
-        hull_ycl_ml = ConvexHull(np.array([vi_hull_ycl_ml, ub_hull_ycl_ml]).T)
-        hull_map_ml = ConvexHull(np.array([vi_hull_map_ml, ub_hull_map_ml]).T)
-        hull_ogcc_ml = ConvexHull(np.array([vi_hull_ogcc_ml, ub_hull_ogcc_ml]).T)
 
-        in_hull_ycl_hum = helper_func.points_in_hull(np.array([vi_color, ub_color]).T, hull_ycl_hum)
-        in_hull_map_hum = helper_func.points_in_hull(np.array([vi_color, ub_color]).T, hull_map_hum)
-        in_hull_ogcc_hum = helper_func.points_in_hull(np.array([vi_color, ub_color]).T, hull_ogcc_hum)
-        in_hull_ycl_ml = helper_func.points_in_hull(np.array([vi_color, ub_color]).T, hull_ycl_ml)
-        in_hull_map_ml = helper_func.points_in_hull(np.array([vi_color, ub_color]).T, hull_map_ml)
-        in_hull_ogcc_ml = helper_func.points_in_hull(np.array([vi_color, ub_color]).T, hull_ogcc_ml)
+        in_hull_ycl_hum = helper_func.GeometryTools.check_points_in_2d_convex_hull(x_point=vi_color, y_point=ub_color, x_data_hull=vi_hull_ycl_hum, y_data_hull=ub_hull_ycl_hum)
+        in_hull_map_hum = helper_func.GeometryTools.check_points_in_2d_convex_hull(x_point=vi_color, y_point=ub_color, x_data_hull=vi_hull_map_hum, y_data_hull=ub_hull_map_hum)
+        in_hull_ogcc_hum = helper_func.GeometryTools.check_points_in_2d_convex_hull(x_point=vi_color, y_point=ub_color, x_data_hull=vi_hull_ogcc_hum, y_data_hull=ub_hull_ogcc_hum)
+        in_hull_ycl_ml = helper_func.GeometryTools.check_points_in_2d_convex_hull(x_point=vi_color, y_point=ub_color, x_data_hull=vi_hull_ycl_ml, y_data_hull=ub_hull_ycl_ml)
+        in_hull_map_ml = helper_func.GeometryTools.check_points_in_2d_convex_hull(x_point=vi_color, y_point=ub_color, x_data_hull=vi_hull_map_ml, y_data_hull=ub_hull_map_ml)
+        in_hull_ogcc_ml = helper_func.GeometryTools.check_points_in_2d_convex_hull(x_point=vi_color, y_point=ub_color, x_data_hull=vi_hull_ogcc_ml, y_data_hull=ub_hull_ogcc_ml)
 
         mask_ycl_hum = in_hull_ycl_hum * np.invert(in_hull_map_hum) + young_mask * (in_hull_map_hum * in_hull_ogcc_hum)
         mask_map_hum = in_hull_map_hum * np.invert(young_mask)

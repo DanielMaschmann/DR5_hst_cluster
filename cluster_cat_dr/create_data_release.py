@@ -12,8 +12,8 @@ except ImportError:
 
 _author = 'Daniel Maschmann'
 _contact = 'dmaschmann(at)stsci(dot)edu'
-_data_release = 5
-_catalog_release = 2
+_data_release = 4
+_catalog_release = 3
 
 # get local data path structure
 config_dict = data_release_config.config_dict
